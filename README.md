@@ -4,6 +4,8 @@ A lightweight, cross-platform terminal game engine inspired by OneLoneCoder's Co
 
 Write games and simple software directly in the terminal with pixels, sprites, shapes, maps, audio, and input — no heavy dependencies.
 
+https://www.youtube.com/watch?v=vyJfy1x6EOY&t=47s
+
 ## Features
 
 - **Cross-platform**: Windows, Linux, macOS
