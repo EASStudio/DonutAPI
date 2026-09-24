@@ -1,6 +1,7 @@
+// Module includes
 #include "DonutAPI.h"
 
-// Includes
+// Core includes
 #include <condition_variable>
 #include <algorithm>
 #include <numeric>
@@ -30,10 +31,10 @@
 // Window functions
 struct DONUTAPI
 {
-	int screenWidth;
-	int screenHeight;
-	int spriteWidth;
-	int spriteHeight;
+	int screenWidth = 0;
+	int screenHeight = 0;
+	int spriteWidth = 0;
+	int spriteHeight = 0;
 
 	short* s_Sprites = nullptr;
 	unsigned short* s_Colors = nullptr;
@@ -42,13 +43,12 @@ struct DONUTAPI
 	CHAR_INFO* screenBuffer = nullptr;
 
 	std::atomic<bool> gameActive{ true };
-	static std::condition_variable gameFinished;
 	bool consoleInFocus = true;
 	float elapsedTime = 0.0f;
 
 	// Input Function varibles
-	KeyState k_keys[256];
-	KeyState m_mouse[5];
+	KeyState k_keys[256] = {};
+	KeyState m_mouse[5] = {};
 	short k_keyOldState[256] = { 0 };
 	short k_keyNewState[256] = { 0 };
 	bool k_mouseOldState[5] = { 0 };
@@ -231,7 +231,7 @@ DNAPI void SetMapVector(const std::vector<std::vector<char>>& userMap)
 	map = userMap;
 }
 
-DNAPI std::pair<int, int> GetConsoleSize()
+DNAPI Vector2 GetConsoleSize()
 {
 #ifdef _WIN32
 	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -242,16 +242,17 @@ DNAPI std::pair<int, int> GetConsoleSize()
 		return { 80, 25 };
 	}
 
-	const int cols = csbi.srWindow.Right - csbi.srWindow.Left + 1;
-	const int rows = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+	const float cols = (float)(csbi.srWindow.Right - csbi.srWindow.Left + 1);
+	const float rows = (float)(csbi.srWindow.Bottom - csbi.srWindow.Top + 1);
 	return { cols, rows };
 #else 
-	struct winsize w;
-	ioctl(fileno(stdout), TIOCGWINSZ, &w);
+	struct winsize w = {};
+	if (ioctl(fileno(stdout), TIOCGWINSZ, &w) != 0 || w.ws_col == 0 || w.ws_row == 0)
+		return { 80.0f, 25.0f };
 
-	const int cols = (int)(w.ws_col);
-	const int rows = (int)(w.ws_row);
-	return { cols, rows };
+	// int -> float in a braced initialiser is a narrowing conversion and is rejected
+	// outright by GCC/Clang; cast explicitly.
+	return { (float)w.ws_col, (float)w.ws_row };
 #endif
 }
 
@@ -326,8 +327,8 @@ DNAPI void DisplayMap(int rows, int spritex, int spritey, const std::unordered_m
 	if (hConsole == INVALID_HANDLE_VALUE) return;
 
 	auto consoleSize = GetConsoleSize();
-	int consoleW = consoleSize.first;
-	int consoleH = consoleSize.second;
+	int consoleW = consoleSize.x;
+	int consoleH = consoleSize.y;
 
 	const int reservedRows = rows;
 	int viewH = std::max(reservedRows, consoleH - reservedRows);
@@ -439,6 +440,13 @@ DNAPI void DestroySprite()
 
 DNAPI void Create(int w, int h)
 {
+	if (core == nullptr || w <= 0 || h <= 0) return;
+
+	// Free any previous sprite first - repeated Create() calls used to leak both
+	// buffers outright.
+	delete[] core->s_Sprites;
+	delete[] core->s_Colors;
+
 	core->spriteWidth = w;
 	core->spriteHeight = h;
 	core->s_Sprites = new short[w * h];
@@ -453,18 +461,21 @@ DNAPI void Create(int w, int h)
 
 DNAPI void SetSprite(int x, int y, short p)
 {
+	if (core == nullptr || core->s_Sprites == nullptr) return;
 	if (x >= 0 && x < core->spriteWidth && y >= 0 && y < core->spriteHeight)
 		core->s_Sprites[y * core->spriteWidth + x] = p;
 }
 
 DNAPI void SetColor(int x, int y, unsigned short color)
 {
+	if (core == nullptr || core->s_Colors == nullptr) return;
 	if (x >= 0 && x < core->spriteWidth && y >= 0 && y < core->spriteHeight)
 		core->s_Colors[y * core->spriteWidth + x] = color;
 }
 
 DNAPI short GetSprite(int x, int y)
 {
+	if (core == nullptr || core->s_Sprites == nullptr) return L' ';
 	if (x < 0 || x >= core->spriteWidth || y < 0 || y >= core->spriteHeight)
 		return L' ';
 	else
@@ -473,6 +484,7 @@ DNAPI short GetSprite(int x, int y)
 
 DNAPI unsigned short GetColor(int x, int y)
 {
+	if (core == nullptr || core->s_Colors == nullptr) return WHITE;
 	if (x < 0 || x >= core->spriteWidth || y < 0 || y >= core->spriteHeight)
 		return WHITE;
 	else
@@ -481,7 +493,8 @@ DNAPI unsigned short GetColor(int x, int y)
 
 DNAPI short SampleSprite(float x, float y)
 {
-	int sx = (int)(x * (float)core->spriteWidth);	
+	if (core == nullptr || core->s_Sprites == nullptr) return L' ';
+	int sx = (int)(x * (float)core->spriteWidth);
 	int sy = (int)(y * (float)core->spriteHeight);
 	if (sx < 0 || sx >= core->spriteWidth || sy < 0 || sy >= core->spriteHeight)
 		return L' ';
@@ -491,6 +504,7 @@ DNAPI short SampleSprite(float x, float y)
 
 DNAPI unsigned short SampleColor(float x, float y)
 {
+	if (core == nullptr || core->s_Colors == nullptr) return WHITE;
 	int sx = (int)(x * (float)core->spriteWidth);
 	int sy = (int)(y * (float)core->spriteHeight);
 	if (sx < 0 || sx >= core->spriteWidth || sy < 0 || sy >= core->spriteHeight)
@@ -501,6 +515,9 @@ DNAPI unsigned short SampleColor(float x, float y)
 
 DNAPI bool SaveSprite(std::wstring sFile)
 {
+	if (core == nullptr || core->s_Sprites == nullptr || core->s_Colors == nullptr)
+		return false;
+
 	FILE* f = nullptr;
 #if defined(_WIN32)
 	_wfopen_s(&f, sFile.c_str(), L"wb");
@@ -522,6 +539,8 @@ DNAPI bool SaveSprite(std::wstring sFile)
 
 DNAPI bool LoadSprite(const std::wstring& sFile)
 {
+	if (core == nullptr) return false;
+
 	FILE* f = nullptr;
 
 #if defined(_WIN32)
@@ -1034,6 +1053,8 @@ DNAPI int InitWindow(int width, int height, int fontw, int fonth, TerminalMode m
 		return true;
 	}
 #endif
+
+	return false; // unreachable, but every path must return on non-void
 }
 
 DNAPI void DestroyWindow()
@@ -1068,13 +1089,9 @@ DNAPI void DestroyWindow()
 		core->graphicsFd = -1;
 	}
 
-	if (!core->fifoPath.empty())
-	{
-		unlink(core->fifoPath.c_str());
-		core->fifoPath.clear();
-	}
-
 #if defined(__APPLE__)
+	// Build the bridge path BEFORE fifoPath is cleared - the old order derived it
+	// from an already-emptied string and unlinked "_bridge.py".
 	if (!core->inputFifoPath.empty())
 	{
 		unlink(core->inputFifoPath.c_str());
@@ -1083,15 +1100,28 @@ DNAPI void DestroyWindow()
 		core->inputFifoPath.clear();
 	}
 #endif
+
+	if (!core->fifoPath.empty())
+	{
+		unlink(core->fifoPath.c_str());
+		core->fifoPath.clear();
+	}
 #endif
+
+	// g_gameActive points into core; leaving it dangling let the signal handler
+	// write to freed memory.
+	g_gameActive = nullptr;
 
 	delete core;
 	core = nullptr;
-	exit(0);
+
+	// No exit(0) here: this is a library teardown call, not a process exit. Killing
+	// the process meant nothing after DestroyWindow() ever ran.
 }
 
 DNAPI void SetWindowName(const std::wstring& name)
 {
+	if (core == nullptr) return;
 	core->appName = name;
 #if !defined(_WIN32)
 	if (core && core->graphicsFd >= 0)
@@ -1118,6 +1148,8 @@ DNAPI bool WindowShouldClose()
 
 DNAPI void DrawPixel(int x, int y, short pixel, unsigned short color)
 {
+	if (core == nullptr || core->screenBuffer == nullptr) return;
+
 	if (x >= 0 && x < core->screenWidth && y >= 0 && y < core->screenHeight)
 	{
 		core->screenBuffer[y * core->screenWidth + x].Char.UnicodeChar = pixel;
@@ -1127,6 +1159,8 @@ DNAPI void DrawPixel(int x, int y, short pixel, unsigned short color)
 
 DNAPI void Clip(int& x, int& y)
 {
+	if (core == nullptr) return;
+
 	if (x < 0) x = 0;
 	if (x >= core->screenWidth) x = core->screenWidth - 1;
 	if (y < 0) y = 0;
@@ -1135,8 +1169,13 @@ DNAPI void Clip(int& x, int& y)
 
 DNAPI void Fill(int x1, int y1, int x2, int y2, short pixel, unsigned short color)
 {
-	Clip(x1, y1);
-	Clip(x2, y2);
+	if (core == nullptr) return;
+
+	x1 = std::clamp(x1, 0, core->screenWidth);
+	y1 = std::clamp(y1, 0, core->screenHeight);
+	x2 = std::clamp(x2, 0, core->screenWidth);
+	y2 = std::clamp(y2, 0, core->screenHeight);
+
 	for (int x = x1; x < x2; x++)
 		for (int y = y1; y < y2; y++)
 			DrawPixel(x, y, pixel, color);
@@ -1144,16 +1183,19 @@ DNAPI void Fill(int x1, int y1, int x2, int y2, short pixel, unsigned short colo
 
 DNAPI void DrawString(int x, int y, std::wstring c, unsigned short color)
 {
+	// A negative x used to wrap onto the previous row instead of being clipped.
+	if (core == nullptr || core->screenBuffer == nullptr) return;
+	if (y < 0 || y >= core->screenHeight) return;
+
 	for (size_t i = 0; i < c.size(); i++)
 	{
 		int cx = x + (int)i;
-		if (cx >= core->screenWidth) 
+		if (cx >= core->screenWidth)
 			break; // stop at right edge — no row wrap
+		if (cx < 0)
+			continue;
 
 		int index = y * core->screenWidth + cx;
-		if (index < 0 || index >= core->screenWidth * core->screenHeight)
-			break;
-		
 		core->screenBuffer[index].Char.UnicodeChar = c[i];
 		core->screenBuffer[index].Attributes = color;
 	}
@@ -1161,14 +1203,18 @@ DNAPI void DrawString(int x, int y, std::wstring c, unsigned short color)
 
 DNAPI void DrawStringAlpha(int x, int y, std::wstring c, unsigned short color)
 {
+	if (core == nullptr || core->screenBuffer == nullptr) return;
+	if (y < 0 || y >= core->screenHeight) return;
+
 	for (size_t i = 0; i < c.size(); i++)
 	{
 		int cx = x + (int)i;
-		if (cx >= core->screenWidth) 
+		if (cx >= core->screenWidth)
 			break; // stop at right edge — no row wrap
+		if (cx < 0)
+			continue;
 
 		int index = y * core->screenWidth + cx;
-		if (index < 0 || index >= core->screenWidth * core->screenHeight) break;
 		if (c[i] != L' ')
 		{
 			core->screenBuffer[index].Char.UnicodeChar = c[i];
@@ -1179,6 +1225,8 @@ DNAPI void DrawStringAlpha(int x, int y, std::wstring c, unsigned short color)
 
 DNAPI void DrawSprite(int x, int y)
 {
+	if (core == nullptr || core->s_Sprites == nullptr) return;
+
 	for (int i = 0; i < core->spriteWidth; i++)
 	{
 		for (int j = 0; j < core->spriteHeight; j++)
@@ -1288,7 +1336,9 @@ DNAPI void DrawRotableRectangle(int x, int y, int sidelength, float rotation, sh
 		{ -h,  h },
 	};
 
-	DrawWireFrameModel(square, (float)x, (float)y, rotation, 1.0f, color, pixel);
+	// (pixel, color), not (color, pixel) - the swapped call drew the colour value as
+	// the glyph and the glyph value as the colour.
+	DrawWireFrameModel(square, (float)x, (float)y, rotation, 1.0f, pixel, color);
 }
 
 DNAPI void FillRotableRectangle(int x, int y, int sidelength, float rotation, short pixel, unsigned short color)
@@ -1574,8 +1624,10 @@ DNAPI void FillCircle(int xc, int yc, int r, short pixel, unsigned short color)
 
 DNAPI void DrawCircleSector(Vector2 center, float radius, float startAngle, float endAngle, int segments, short pixel, unsigned short color)
 {
-	float start = startAngle * 3.14159f / 180.0f;
-	float end = endAngle * 3.14159f / 180.0f;
+	if (segments <= 0) return;
+
+	float start = startAngle * DEG2RAD;
+	float end = endAngle * DEG2RAD;
 	float angleStep = (end - start) / segments;
 
 	for (int i = 0; i < segments; i++)
@@ -1594,12 +1646,17 @@ DNAPI void DrawCircleSector(Vector2 center, float radius, float startAngle, floa
 
 DNAPI void FillCircleSector(Vector2 center, float radius, float startAngle, float endAngle, int segments, short pixel, unsigned short color)
 {
-	float angleStep = 2.0f * 3.14159f / segments;
+	if (segments <= 0) return;
+
+	// startAngle / endAngle were ignored entirely - this always filled a whole circle.
+	float start = startAngle * DEG2RAD;
+	float end = endAngle * DEG2RAD;
+	float angleStep = (end - start) / segments;
 
 	for (int i = 0; i < segments; i++)
 	{
-		float angle1 = i * angleStep;
-		float angle2 = (i + 1) * angleStep;
+		float angle1 = start + i * angleStep;
+		float angle2 = start + (i + 1) * angleStep;
 
 		// Perimeter point 1
 		int x1 = (int)center.x + (int)(radius * cosf(angle1));
@@ -1610,22 +1667,21 @@ DNAPI void FillCircleSector(Vector2 center, float radius, float startAngle, floa
 		int y2 = (int)center.y + (int)(radius * sinf(angle2));
 
 		// Fill triangle from center to the two perimeter points
-		FillTriangle(center.x, center.y, x1, y1, x2, y2, pixel, color);
+		FillTriangle((int)center.x, (int)center.y, x1, y1, x2, y2, pixel, color);
 	}
 }
 
 DNAPI void DrawEllipse(int xc, int yc, int a, int b, int angle, short pixel, unsigned short color)
 {
-	float t = 3.14f / 180.0f; 
-	angle = 360 - (float)angle;
+	const float t = DEG2RAD;
+	const float a2 = (float)(360 - angle);   // was assigned back into the int param
 	float theta;
 
 	for (int i = 0; i < 360; i += 1)
 	{
-		theta = i;
-		int x = a * cos(t * theta) * cos(t * angle) + b * sin(t * theta) * sin(t * angle);
-
-		int y = b * sin(t * theta) * cos(t * angle) - a * cos(t * theta) * sin(t * angle);
+		theta = (float)i;
+		int x = (int)(a * cosf(t * theta) * cosf(t * a2) + b * sinf(t * theta) * sinf(t * a2));
+		int y = (int)(b * sinf(t * theta) * cosf(t * a2) - a * cosf(t * theta) * sinf(t * a2));
 
 		DrawPixel(xc + x, yc - y, pixel, color);
 	}
@@ -1633,17 +1689,15 @@ DNAPI void DrawEllipse(int xc, int yc, int a, int b, int angle, short pixel, uns
 
 DNAPI void FillEllipse(int xc, int yc, int a, int b, int angle, short pixel, unsigned short color)
 {
-	float t = 3.14f / 180.0f;
-	angle = 360 - angle;
+	const float t = DEG2RAD;
+	const float a2 = (float)(360 - angle);
 	float theta;
 
 	for (int i = 0; i < 360; i += 1)
 	{
-		theta = i;
-		int x = a * cos(t * theta) * cos(t * angle)
-			+ b * sin(t * theta) * sin(t * angle);
-
-		int y = b * sin(t * theta) * cos(t * angle) - a * cos(t * theta) * sin(t * angle);
+		theta = (float)i;
+		int x = (int)(a * cosf(t * theta) * cosf(t * a2) + b * sinf(t * theta) * sinf(t * a2));
+		int y = (int)(b * sinf(t * theta) * cosf(t * a2) - a * cosf(t * theta) * sinf(t * a2));
 
 		DrawLine(xc + x, yc - y, xc - x - 1, yc + y, pixel, color);
 	}
@@ -1651,7 +1705,7 @@ DNAPI void FillEllipse(int xc, int yc, int a, int b, int angle, short pixel, uns
 
 DNAPI void DrawPoly(const Vector2* vertices, int count, short pixel, unsigned short color)
 {
-	if (count < 2) return;
+	if (!vertices || count < 2) return;
 
 	// Draw a line between each consecutive vertex, closing back to the first
 	for (int i = 0; i < count; i++)
@@ -1667,7 +1721,7 @@ DNAPI void DrawPoly(const Vector2* vertices, int count, short pixel, unsigned sh
 
 DNAPI void FillPoly(const Vector2* vertices, int count, short pixel, unsigned short color)
 {
-	if (count < 3) return;
+	if (!vertices || count < 3 || core == nullptr) return;
 
 	// Find the Y extents of the polygon so we know which scanlines to process
 	int yMin = (int)vertices[0].y;
@@ -1736,8 +1790,11 @@ DNAPI void FillPoly(const Vector2* vertices, int count, short pixel, unsigned sh
 
 DNAPI void DrawWireFrameModel(const std::vector<std::pair<float, float>>& vecModelCoordinates, float x, float y, float r, float s, short pixel, unsigned short color)
 {
+	// verts == 0 would make the "% verts" below a division by zero.
+	int verts = (int)vecModelCoordinates.size();
+	if (verts < 2) return;
+
 	std::vector<std::pair<float, float>> vecTransformedCoordinates;
-	int verts = vecModelCoordinates.size();
 	vecTransformedCoordinates.resize(verts);
 
 	for (int i = 0; i < verts; i++)
@@ -1758,12 +1815,215 @@ DNAPI void DrawWireFrameModel(const std::vector<std::pair<float, float>>& vecMod
 		vecTransformedCoordinates[i].second = vecTransformedCoordinates[i].second + y;
 	}
 
-	for (int i = 0; i < verts + 1; i++)
+	// i <= verts drew the first edge twice; one pass with a wrapped end point closes
+	// the loop exactly once.
+	for (int i = 0; i < verts; i++)
 	{
-		int j = (i + 1);
-		DrawLine((int)vecTransformedCoordinates[i % verts].first, (int)vecTransformedCoordinates[i % verts].second,
-			(int)vecTransformedCoordinates[j % verts].first, (int)vecTransformedCoordinates[j % verts].second, pixel, color);
+		int j = (i + 1) % verts;
+		DrawLine((int)vecTransformedCoordinates[i].first, (int)vecTransformedCoordinates[i].second,
+			(int)vecTransformedCoordinates[j].first, (int)vecTransformedCoordinates[j].second, pixel, color);
 	}
+}
+
+// Collision point helper
+DNAPI bool CheckCollisionRects(RectangleDef r1, RectangleDef r2)
+{
+	return (r1.x < r2.x + r2.width) && (r1.x + r1.width > r2.x) &&
+		(r1.y < r2.y + r2.height) && (r1.y + r1.height > r2.y);
+}
+
+DNAPI bool CheckCollisionPointRect(Vector2 p, RectangleDef r)
+{
+	return p.x >= r.x && p.x <= r.x + r.width &&
+		p.y >= r.y && p.y <= r.y + r.height;
+}
+
+DNAPI bool CheckCollisionPointCircles(Vector2 c1, float r1, Vector2 c2, float r2)
+{
+	float dx = c2.x - c1.x;
+	float dy = c2.y - c1.y;
+	float distSq = dx * dx + dy * dy;
+	float radiusSum = r1 + r2;
+
+	return distSq <= (radiusSum * radiusSum);
+}
+
+// Collision rectangle helpers
+
+// Outlines the cells from (left, top) to (right, bottom), both corners inclusive
+static void DrawCellBox(int left, int top, int right, int bottom, short pixel, unsigned short color)
+{
+	if (right < left || bottom < top) return;
+
+	DrawLine(left, top, right, top, pixel, color);
+	DrawLine(right, top, right, bottom, pixel, color);
+	DrawLine(right, bottom, left, bottom, pixel, color);
+	DrawLine(left, bottom, left, top, pixel, color);
+}
+
+// Fills the cells from (left, top) to (right, bottom), both corners inclusive
+static void FillCellBox(int left, int top, int right, int bottom, short pixel, unsigned short color)
+{
+	if (right < left || bottom < top) return;
+
+	// Fill() takes an exclusive end point
+	Fill(left, top, right + 1, bottom + 1, pixel, color);
+}
+
+// A RectangleDef covers the cells [x, x + width) x [y, y + height), so a width of 10
+// is exactly 10 cells wide. Returns false for an empty rectangle.
+static bool RectToCells(RectangleDef rec, int& left, int& top, int& right, int& bottom)
+{
+	if (rec.width <= 0.0f || rec.height <= 0.0f) return false;
+
+	left = (int)std::floor(rec.x);
+	top = (int)std::floor(rec.y);
+	right = (int)std::ceil(rec.x + rec.width) - 1;
+	bottom = (int)std::ceil(rec.y + rec.height) - 1;
+	return true;
+}
+
+// The box of cells DrawCircle()/FillCircle() cover for the same center and radius,
+// so the rectangle frames the circle exactly.
+static bool CircleToCells(Vector2 center, float radius, int& left, int& top, int& right, int& bottom)
+{
+	if (radius < 0.0f) return false;
+
+	left = (int)std::lround(center.x - radius);
+	top = (int)std::lround(center.y - radius);
+	right = (int)std::lround(center.x + radius);
+	bottom = (int)std::lround(center.y + radius);
+	return true;
+}
+
+DNAPI RectangleDef GetCollisionRects(RectangleDef r1, RectangleDef r2)
+{
+	RectangleDef overlap = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+	float left = std::max(r1.x, r2.x);
+	float top = std::max(r1.y, r2.y);
+	float right = std::min(r1.x + r1.width, r2.x + r2.width);
+	float bottom = std::min(r1.y + r1.height, r2.y + r2.height);
+
+	// Same strict test as CheckCollisionRects: edges that only touch don't count
+	if (right <= left || bottom <= top) return overlap;
+
+	overlap.x = left;
+	overlap.y = top;
+	overlap.width = right - left;
+	overlap.height = bottom - top;
+	return overlap;
+}
+
+DNAPI void DrawRectangleRect(RectangleDef rec, short pixel, unsigned short color)
+{
+	int left, top, right, bottom;
+	if (!RectToCells(rec, left, top, right, bottom)) return;
+
+	DrawCellBox(left, top, right, bottom, pixel, color);
+}
+
+DNAPI void FillRectangleRect(RectangleDef rec, short pixel, unsigned short color)
+{
+	int left, top, right, bottom;
+	if (!RectToCells(rec, left, top, right, bottom)) return;
+
+	FillCellBox(left, top, right, bottom, pixel, color);
+}
+
+DNAPI RectangleDef GetCollisionCircle(Vector2 c1, float r1, Vector2 c2, float r2)
+{
+	RectangleDef overlap = { 0.0f, 0.0f, 0.0f, 0.0f };
+	if (r1 < 0.0f || r2 < 0.0f) return overlap;
+
+	float dx = c2.x - c1.x;
+	float dy = c2.y - c1.y;
+	float dist = std::sqrt(dx * dx + dy * dy);
+
+	// Same test as CheckCollisionPointCircles
+	if (dist > r1 + r2) return overlap;
+
+	// One circle sits completely inside the other (this also covers dist == 0):
+	// the overlap is the whole smaller circle
+	if (dist <= std::fabs(r1 - r2))
+	{
+		Vector2 c = (r1 < r2) ? c1 : c2;
+		float r = std::min(r1, r2);
+
+		overlap.x = c.x - r;
+		overlap.y = c.y - r;
+		overlap.width = r * 2.0f;
+		overlap.height = r * 2.0f;
+		return overlap;
+	}
+
+	// The overlap is a lens shape. Its edge is made of two arcs, so its furthest
+	// point in any direction is either one of the two points where the circles cross,
+	// or a circle's own top/bottom/left/right point if that point is inside the other circle.
+
+	// Where the circles cross
+	float a = (r1 * r1 - r2 * r2 + dist * dist) / (2.0f * dist);
+	float h = std::sqrt(std::max(0.0f, r1 * r1 - a * a));
+	float ux = dx / dist;
+	float uy = dy / dist;
+	float mx = c1.x + a * ux;
+	float my = c1.y + a * uy;
+
+	float minX = std::min(mx - h * uy, mx + h * uy);
+	float maxX = std::max(mx - h * uy, mx + h * uy);
+	float minY = std::min(my + h * ux, my - h * ux);
+	float maxY = std::max(my + h * ux, my - h * ux);
+
+	// A circle's extreme points that lie inside the other circle
+	auto addExtremes = [&](Vector2 c, float r, Vector2 other, float otherR)
+		{
+			const Vector2 points[4] =
+			{
+				{ c.x - r, c.y }, { c.x + r, c.y },
+				{ c.x, c.y - r }, { c.x, c.y + r }
+			};
+
+			float limit = otherR + 0.0001f; // small slack for float error
+
+			for (const Vector2& p : points)
+			{
+				float px = p.x - other.x;
+				float py = p.y - other.y;
+
+				if (px * px + py * py <= limit * limit)
+				{
+					minX = std::min(minX, p.x);
+					maxX = std::max(maxX, p.x);
+					minY = std::min(minY, p.y);
+					maxY = std::max(maxY, p.y);
+				}
+			}
+		};
+
+	addExtremes(c1, r1, c2, r2);
+	addExtremes(c2, r2, c1, r1);
+
+	overlap.x = minX;
+	overlap.y = minY;
+	overlap.width = maxX - minX;
+	overlap.height = maxY - minY;
+	return overlap;
+}
+
+DNAPI void DrawRectangleCircle(Vector2 center, float radius, short pixel, unsigned short color)
+{
+	int left, top, right, bottom;
+	if (!CircleToCells(center, radius, left, top, right, bottom)) return;
+
+	DrawCellBox(left, top, right, bottom, pixel, color);
+}
+
+DNAPI void FillRectangleCircle(Vector2 center, float radius, short pixel, unsigned short color)
+{
+	int left, top, right, bottom;
+	if (!CircleToCells(center, radius, left, top, right, bottom)) return;
+
+	FillCellBox(left, top, right, bottom, pixel, color);
 }
 
 DNAPI KeyState GetKey(int keycode)
@@ -2352,20 +2612,48 @@ release_expired:
 
 DNAPI int GetMouseX()
 {
-	if (core == nullptr) return { 0 };
+	if (core == nullptr) return 0;
 	return core->m_mousePosX;
 }
 
 DNAPI int GetMouseY()
 {
-	if (core == nullptr) return { 0 };
+	if (core == nullptr) return 0;
 	return core->m_mousePosY;
 }
 
-DNAPI std::pair<int, int> GetMousePos()
+DNAPI Vector2 GetMousePosition()
 {
-	if (core == nullptr) return { 0, 0 };
-	return { core->m_mousePosX, core->m_mousePosY };
+	if (core == nullptr) return { 0.0f, 0.0f };
+	return { (float)core->m_mousePosX, (float)core->m_mousePosY };
+}
+
+DNAPI bool IsMouseButtonPressed(int button)
+{
+	if (button < 0 || button > 2) return false;
+	return core ? core->m_mousePressed[button] : false;
+}
+
+DNAPI bool IsMouseButtonDown(int button)
+{
+	if (button < 0 || button > 2) return false;
+	return core ? core->m_mouseButtons[button] : false;
+}
+
+DNAPI bool IsMouseButtonReleased(int button)
+{
+	if (button < 0 || button > 2) return false;
+	return core ? core->m_mouseReleased[button] : false;
+}
+
+DNAPI float GetMouseWheelMove()
+{
+	// The reset below dereferenced core unconditionally, right after testing it.
+	if (core == nullptr) return 0.0f;
+
+	float delta = (float)core->m_mouseWheelDelta;
+	core->m_mouseWheelDelta = 0;
+	return delta;
 }
 
 DNAPI MouseState GetMouseState()
@@ -2376,17 +2664,19 @@ DNAPI MouseState GetMouseState()
 	ms.x = core->m_mousePosX;
 	ms.y = core->m_mousePosY;
 
+	// Slot order is 0 = left, 1 = middle, 2 = right (both the Win32 and the SGR
+	// parsers fill them that way) - right and middle used to be reported swapped.
 	ms.leftHeld = core->m_mouseButtons[0];
-	ms.rightHeld = core->m_mouseButtons[1];
-	ms.middleHeld = core->m_mouseButtons[2];
+	ms.middleHeld = core->m_mouseButtons[1];
+	ms.rightHeld = core->m_mouseButtons[2];
 
 	ms.leftPressed = core->m_mousePressed[0];
-	ms.rightPressed = core->m_mousePressed[1];
-	ms.middlePressed = core->m_mousePressed[2];
+	ms.middlePressed = core->m_mousePressed[1];
+	ms.rightPressed = core->m_mousePressed[2];
 
 	ms.leftReleased = core->m_mouseReleased[0];
-	ms.rightReleased = core->m_mouseReleased[1];
-	ms.middleReleased = core->m_mouseReleased[2];
+	ms.middleReleased = core->m_mouseReleased[1];
+	ms.rightReleased = core->m_mouseReleased[2];
 
 	ms.wheelDelta = core->m_mouseWheelDelta;
 
@@ -2405,8 +2695,16 @@ DNAPI void ShowConsoleCursor(bool visible)
 	cci.bVisible = visible ? TRUE : FALSE;
 	SetConsoleCursorInfo(h, &cci);
 #else
-	std::printf(visible ? "\e[?25h" : "\e[?25l");
-	std::fflush(stdout);
+	// "\e" is a GCC extension; "\033" is portable. Write to the game surface so the
+	// call works with a spawned terminal too.
+	const char* seq = visible ? "\033[?25h" : "\033[?25l";
+	if (core && core->graphicsFd >= 0)
+		write(core->graphicsFd, seq, strlen(seq));
+	else
+	{
+		std::fputs(seq, stdout);
+		std::fflush(stdout);
+	}
 #endif
 }
 
@@ -2438,8 +2736,10 @@ DNAPI int GetRandomValue(int min, int max)
 
 DNAPI int SetRandomSeed(unsigned int seed)
 {
-	if (seed <= 0) return seed;
-	return rand() % seed;
+	// This never seeded anything - it returned rand() % seed, so GetRandomValue()
+	// stayed on the default sequence and the "seed" was consumed as a modulus.
+	std::srand(seed);
+	return (int)seed;
 }
 
 // Texture 
@@ -2447,10 +2747,12 @@ DNAPI int SetRandomSeed(unsigned int seed)
 
 DNAPI Texture CreateTexture(int width, int height)
 {
-	Texture tex;
+	Texture tex{};
+	if (width <= 0 || height <= 0) return tex;   // no 0/negative-sized allocations
+
 	tex.width = width;
 	tex.height = height;
-	tex.pixels = new unsigned short[width * height]();
+	tex.pixels = new unsigned short[(size_t)width * (size_t)height]();
 	return tex;
 }
 
@@ -2464,18 +2766,37 @@ DNAPI void DestroyTexture(Texture& tex)
 
 DNAPI void SetTexPixel(Texture& tex, int x, int y, unsigned short color)
 {
-	if (x < 0 || x >= tex.width || y < 0 || y >= tex.height) return;
+	if (!tex.pixels || x < 0 || x >= tex.width || y < 0 || y >= tex.height) return;
 	tex.pixels[y * tex.width + x] = color;
 }
 
 DNAPI unsigned short GetTexPixel(const Texture& tex, int x, int y)
 {
-	if (x < 0 || x >= tex.width || y < 0 || y >= tex.height) return 0;
+	if (!tex.pixels || x < 0 || x >= tex.width || y < 0 || y >= tex.height) return 0;
 	return tex.pixels[y * tex.width + x];
+}
+
+DNAPI Texture RotateTexture90(const Texture& src)
+{
+	Texture out = CreateTexture(src.height, src.width);
+	for (int y = 0; y < src.height; ++y)
+	{
+		for (int x = 0; x < src.width; ++x)
+		{
+			unsigned short c = GetTexPixel(src, x, y);
+			int nx = src.height - 1 - y;
+			int ny = x;
+			SetTexPixel(out, nx, ny, c);
+		}
+	}
+
+	return out;
 }
 
 DNAPI unsigned short SampleTexture(const Texture& tex, float u, float v)
 {
+	if (!tex.pixels || tex.width <= 0 || tex.height <= 0) return 0;
+
 	u -= floorf(u);
 	v -= floorf(v);
 
@@ -2498,6 +2819,8 @@ DNAPI bool SaveTexture(const Texture& tex, const std::wstring& path)
 #endif
 	if (!f) return false;
 
+	if (!tex.pixels || tex.width <= 0 || tex.height <= 0) { fclose(f); return false; }
+
 	const char magic[4] = { 'D', 'N', 'T', 'X' };
 	fwrite(magic, 1, 4, f);
 	fwrite(&tex.width, sizeof(int), 1, f);
@@ -2517,26 +2840,38 @@ DNAPI bool LoadTexture(const std::wstring& path, Texture& outTex)
 #endif
 	if (!f) return false;
 
+	// Every fread result was ignored, so a truncated file produced a texture full of
+	// uninitialised memory.
 	char magic[4] = {};
-	fread(magic, 1, 4, f);
-	if (magic[0] != 'D' || magic[1] != 'N' || magic[2] != 'T' || magic[3] != 'X')
+	if (fread(magic, 1, 4, f) != 4 ||
+		magic[0] != 'D' || magic[1] != 'N' || magic[2] != 'T' || magic[3] != 'X')
 	{
 		fclose(f); return false;
 	}
 
 	int w = 0, h = 0;
-	fread(&w, sizeof(int), 1, f);
-	fread(&h, sizeof(int), 1, f);
+	if (fread(&w, sizeof(int), 1, f) != 1 || fread(&h, sizeof(int), 1, f) != 1)
+	{
+		fclose(f); return false;
+	}
 
 	if (w <= 0 || h <= 0 || w > 4096 || h > 4096) { fclose(f); return false; }
 
-	delete[] outTex.pixels;
+	const size_t count = (size_t)w * (size_t)h;
+	unsigned short* pixels = new unsigned short[count];
 
+	if (fread(pixels, sizeof(unsigned short), count, f) != count)
+	{
+		delete[] pixels;
+		fclose(f);
+		return false;
+	}
+	fclose(f);
+
+	delete[] outTex.pixels;
 	outTex.width = w;
 	outTex.height = h;
-	outTex.pixels = new unsigned short[w * h];
-	fread(outTex.pixels, sizeof(unsigned short), w * h, f);
-	fclose(f);
+	outTex.pixels = pixels;
 	return true;
 }
 
@@ -2549,6 +2884,8 @@ static void WavLE(std::ofstream& f, uint32_t v, int bytes)
 
 DNAPI void CreateMusicFile(const char* filename, double bpm, double beat, int sr, const Music* notes, int noteCount, float volume)
 {
+	if (!filename || !notes || noteCount <= 0 || sr <= 0 || bpm <= 0.0) return;
+
 	double BEAT = beat / bpm;
 	int SR = sr;
 
@@ -2594,12 +2931,16 @@ static void* LoadWavBytes(const char* filename, uint32_t& fileSize)
 		OPEN_EXISTING, 0, nullptr);
 	if (file == INVALID_HANDLE_VALUE) return nullptr;
 	DWORD sz = GetFileSize(file, nullptr);
+	if (sz == INVALID_FILE_SIZE || sz == 0) { CloseHandle(file); return nullptr; }
+
 	void* buf = HeapAlloc(GetProcessHeap(), 0, sz + 1);
+	if (!buf) { CloseHandle(file); return nullptr; }
+
 	DWORD br = 0;
 	ReadFile(file, buf, sz, &br, nullptr);
 	CloseHandle(file);
-	((uint8_t*)buf)[sz] = 0;
-	fileSize = sz;
+	((uint8_t*)buf)[br] = 0;
+	fileSize = br;
 	return buf;
 #else
 	FILE* f = fopen(filename, "rb");
@@ -2607,11 +2948,19 @@ static void* LoadWavBytes(const char* filename, uint32_t& fileSize)
 	fseek(f, 0, SEEK_END);
 	long sz = ftell(f);
 	rewind(f);
-	void* buf = malloc(sz + 1);
-	fread(buf, 1, sz, f);
+
+	// ftell can fail, malloc can fail, and the read may come up short - all three
+	// were assumed to succeed.
+	if (sz <= 0) { fclose(f); return nullptr; }
+
+	void* buf = malloc((size_t)sz + 1);
+	if (!buf) { fclose(f); return nullptr; }
+
+	size_t got = fread(buf, 1, (size_t)sz, f);
 	fclose(f);
-	((uint8_t*)buf)[sz] = 0;
-	fileSize = (uint32_t)sz;
+
+	((uint8_t*)buf)[got] = 0;
+	fileSize = (uint32_t)got;
 	return buf;
 #endif
 }
@@ -2797,14 +3146,14 @@ static void ALSAPlay(const char* filename,
 		wav->sampleRate != 44100 || wav->bitsPerSample != 16)
 	{
 		fprintf(stderr, "[DonutAPI] ALSAPlay: unsupported WAV in '%s'\n", filename);
-		free(fileBytes); return;
+		FreeWavBytes(fileBytes); return;
 	}
 
 	snd_pcm_t* handle = nullptr;
 	if (snd_pcm_open(&handle, "default", SND_PCM_STREAM_PLAYBACK, 0) < 0)
 	{
 		fprintf(stderr, "[DonutAPI] ALSAPlay: snd_pcm_open failed\n");
-		free(fileBytes); return;
+		FreeWavBytes(fileBytes); return;
 	}
 
 	int err = snd_pcm_set_params(handle, SND_PCM_FORMAT_S16_LE,
@@ -2812,7 +3161,7 @@ static void ALSAPlay(const char* filename,
 		wav->sampleRate, 1, 50000);
 	if (err < 0)
 	{
-		snd_pcm_close(handle); free(fileBytes); return;
+		snd_pcm_close(handle); FreeWavBytes(fileBytes); return;
 	}
 
 	if (playingFlag) *playingFlag = true;
@@ -2830,6 +3179,7 @@ static void ALSAPlay(const char* filename,
 		snd_pcm_sframes_t rc = snd_pcm_writei(handle, src + written * wav->numChannels, chunk);
 		if (rc < 0) rc = snd_pcm_recover(handle, (int)rc, 0);
 		if (rc > 0) written += (uint32_t)rc;
+		else if (rc < 0) break;   // unrecoverable: the old loop span forever
 	}
 
 	snd_pcm_drain(handle);
@@ -3038,6 +3388,7 @@ DNAPI void DrawBillboard
 
 	int sprH = std::abs((int)(sh / transformY * scale));
 	int sprW = sprH;
+	if (sprW <= 0 || sprH <= 0) return;   // guards the divide by sprW below
 
 	int drawStartY = std::max(0, sh / 2 - sprH / 2);
 	int drawEndY = std::min(sh - 1, sh / 2 + sprH / 2);
