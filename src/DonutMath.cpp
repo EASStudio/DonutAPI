@@ -1,5 +1,7 @@
+// Moduel includes
 #include "DonutMath.h"
 
+// Core includes
 #include <cmath>
 #include <algorithm>
 
@@ -911,7 +913,7 @@ DNMATH Matrix4 Matrix4Perspective(float fovY, float aspect, float nearZ, float f
 	return result;
 }
 
-DNMATH Matrix4 Matrix4LookAt(Vector3 eye, Vector3 center, Vector3 up) 
+DNMATH Matrix4 Matrix4LookAt(Vector3 eye, Vector3 center, Vector3 up)
 {
 	// Row-vector convention (v * M)
 	Vector3 f = Vector3Normalize(Vector3Subtract(center, eye)); // forward
@@ -933,15 +935,15 @@ DNMATH Matrix4 Matrix4LookAt(Vector3 eye, Vector3 center, Vector3 up)
 	result.num7 = 0.0f;
 
 	// Row 2
-	result.num8  = -f.x;
-	result.num9  = -f.y;
+	result.num8 = -f.x;
+	result.num9 = -f.y;
 	result.num10 = -f.z;
 	result.num11 = 0.0f;
 
 	// Row 3 (translation row for row-vector convention)
 	result.num12 = -Vector3Dot(s, eye);
 	result.num13 = -Vector3Dot(u, eye);
-	result.num14 =  Vector3Dot(f, eye);
+	result.num14 = Vector3Dot(f, eye);
 	result.num15 = 1.0f;
 
 	return result;
@@ -1166,4 +1168,49 @@ DNMATH float FloatEqual(float x, float y)
 	int result = (fabsf(x - y)) <= (EPSILON * fmaxf(1.0f, fmaxf(fabsf(x), fabsf(y))));
 
 	return result;
+}
+
+DNMATH float EaseInOutQuad(float t)
+{
+	t = Clamp(t, 0.0f, 1.0f);
+	return (t < 0.5f) ? (2.0f * t * t) : (1.0f - powf(-2.0f * t + 2.0f, 2.0f) / 2.0f);
+}
+
+DNMATH float EaseOutBounce(float t)
+{
+	t = Clamp(t, 0.0f, 1.0f);
+	const float n1 = 7.5625f;
+	const float d1 = 2.75f;
+
+	if (t < 1.0f / d1)
+		return n1 * t * t;
+
+	else if (t < 2.0f / d1)
+	{
+		t -= 1.5f / d1;
+		return n1 * t * t + 0.75f;
+	}
+
+	else if (t < 2.5f / d1)
+	{
+		t -= 2.25f / d1;
+		return n1 * t * t + 0.9375f;
+	}
+
+	else
+	{
+		t -= 2.625f / d1;
+		return n1 * t * t + 0.984375f;
+	}
+
+}
+
+DNMATH float EaseOutElastic(float t)
+{
+	t = Clamp(t, 0.0f, 1.0f);
+	if (t == 0.0f) return 0.0f;
+	if (t == 1.0f) return 1.0f;
+
+	const float c4 = (2.0f * PI) / 3.0f;
+	return powf(2.0f, -10.0f * t) * sinf((t * 10.0f - 0.75f) * c4) + 1.0f;
 }
