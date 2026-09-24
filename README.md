@@ -1,10 +1,8 @@
-# DonutAPI 1.0
+# DonutAPI 1.1
 
 A lightweight, cross-platform terminal game engine inspired by OneLoneCoder's ConsoleGameEngine.
 
 Write games and simple software directly in the terminal with pixels, sprites, shapes, maps, audio, and input — no heavy dependencies.
-
-https://www.youtube.com/watch?v=vyJfy1x6EOY&t=47s
 
 ## Features
 
@@ -13,6 +11,8 @@ https://www.youtube.com/watch?v=vyJfy1x6EOY&t=47s
 - **Sprite system** (create, save, load, draw)
 - **Shape drawing** (lines, rectangles, circles, triangles, polygons, etc.)
 - **Map generation**: Random + Perlin noise
+- **WFC generation**: Textures + Strings
+- **ECS functions**
 - **Audio support**: Background music + SFX (WAV files)
 - **Input handling**: Keyboard + Mouse
 - **Texture system**
