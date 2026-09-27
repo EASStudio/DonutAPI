@@ -33,7 +33,7 @@ On May 17th, 2026 I realsed the first verion of DonutAPI it had:
 
 # DonutAPI 1.1:
 
-On September 24th, 2026 I realsed DonutAPI to 1.1 with these new things:
+On September 26th, 2026 I realsed DonutAPI to 1.1 with these new things:
 - **Fixed comments**: Correctly tells user what functions do
 - **WFC functions added**: Support with textures and strings
 - **ECS functions added**: Entity, Components, and System manager
