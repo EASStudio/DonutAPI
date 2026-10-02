@@ -213,8 +213,11 @@ namespace ECS
         template<typename T>
         bool hasComponent(Entity entity) const
         {
-            return getComponentArray<T>()->hasComponent(entity);
-        }
+            auto it = componentArrays.find(typeid(T));
+            if (it == componentArrays.end())
+                return false;   // never registered -> no entity can have it
+            return std::static_pointer_cast<ComponentArray<T>>(it->second)->hasComponent(entity);
+}
 
         void entityDestroyed(Entity entity)
         {
